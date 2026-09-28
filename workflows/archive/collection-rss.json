@@ -1,0 +1,199 @@
+{
+  "name": "Veille Stratégique — Collection & Analyse",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 3 }] }
+      },
+      "id": "n01",
+      "name": "Toutes les 3 heures",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  // ── Médias financiers spécialisés Maroc ──\n  { json: { url: 'https://www.financesnews.ma/feed',            name: 'Finances News',       cat: 'Finance Maroc',    morocco: true }},\n  { json: { url: 'https://www.boursenews.ma/feed',              name: 'Bourse News',         cat: 'Finance Maroc',    morocco: true }},\n  { json: { url: 'https://www.leconomiste.com/feed',            name: \"L'Economiste\",        cat: 'Économie Maroc',   morocco: true }},\n  { json: { url: 'https://www.leseco.ma/feed',                  name: 'Les Eco',             cat: 'Économie Maroc',   morocco: true }},\n  { json: { url: 'https://www.challenge.ma/feed',               name: 'Challenge Maroc',     cat: 'Business Maroc',   morocco: true }},\n  { json: { url: 'https://medias24.com/feed',                   name: 'Medias24',            cat: 'Actualités Maroc', morocco: true }},\n  { json: { url: 'https://lnt.ma/feed/',                        name: 'La Nouvelle Tribune', cat: 'Économie Maroc',   morocco: true }},\n  { json: { url: 'https://www.lematin.ma/rss/Une.rss',          name: 'Le Matin',            cat: 'Actualités Maroc', morocco: true }},\n  { json: { url: 'https://www.agenceecofin.com/rss/toutes-les-nouvelles', name: 'Agence Ecofin', cat: 'Finance Afrique', morocco: false }},\n  // ── Fintechs & acteurs paiement Maroc ──\n  { json: { url: 'https://www.hps-worldwide.com/feed/',         name: 'HPS Worldwide',       cat: 'Fintech Maroc',    morocco: true }},\n  // ── Régulateurs & institutionnels Maroc ──\n  { json: { url: 'https://www.bkam.ma/rss/Communiques',         name: 'Bank Al-Maghrib',     cat: 'Régulation Maroc', morocco: true }},\n  { json: { url: 'https://www.finances.gov.ma/rss/actualites',  name: 'Min. Finances Maroc', cat: 'Régulation Maroc', morocco: true }},\n  // ── Visa & Mastercard MEA ──\n  { json: { url: 'https://ma.visamiddleeast.com/fr_MA/about-visa/newsroom/rss.xml', name: 'Visa Maroc', cat: 'Paiement Global', morocco: false }},\n  { json: { url: 'https://www.mastercard.com/mea/fr/news-and-trends/press/rss.xml', name: 'Mastercard MEA', cat: 'Paiement Global', morocco: false }},\n  // ── Paiement international ──\n  { json: { url: 'https://thepaypers.com/rss/all',              name: 'The Paypers',         cat: 'Paiement Global',  morocco: false }},\n  { json: { url: 'https://www.finextra.com/rss/headlines.aspx', name: 'Finextra',            cat: 'Fintech Global',   morocco: false }}\n];"
+      },
+      "id": "n02",
+      "name": "Liste des sources",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "options": {}
+      },
+      "id": "n03",
+      "name": "Lire RSS",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.1,
+      "position": [680, 300],
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ================================================================\n// NIVEAU 1 — PRÉ-SCORING PAR MOTS-CLÉS\n// ================================================================\n\nconst SOURCE_MAP = {\n  'financesnews.ma':        { name:'Finances News',       cat:'Finance Maroc',    morocco:true  },\n  'boursenews.ma':          { name:'Bourse News',         cat:'Finance Maroc',    morocco:true  },\n  'leconomiste.com':        { name:\"L'Economiste\",        cat:'Économie Maroc',   morocco:true  },\n  'leseco.ma':              { name:'Les Eco',             cat:'Économie Maroc',   morocco:true  },\n  'challenge.ma':           { name:'Challenge Maroc',     cat:'Business Maroc',   morocco:true  },\n  'medias24.com':           { name:'Medias24',            cat:'Actualités Maroc', morocco:true  },\n  'lnt.ma':                 { name:'La Nouvelle Tribune', cat:'Économie Maroc',   morocco:true  },\n  'lematin.ma':             { name:'Le Matin',            cat:'Actualités Maroc', morocco:true  },\n  'agenceecofin.com':       { name:'Agence Ecofin',       cat:'Finance Afrique',  morocco:false },\n  'hps-worldwide.com':      { name:'HPS Worldwide',       cat:'Fintech Maroc',    morocco:true  },\n  'bkam.ma':                { name:'Bank Al-Maghrib',     cat:'Régulation Maroc', morocco:true  },\n  'finances.gov.ma':        { name:'Min. Finances Maroc', cat:'Régulation Maroc', morocco:true  },\n  'visamiddleeast.com':     { name:'Visa Maroc',          cat:'Paiement Global',  morocco:false },\n  'mastercard.com':         { name:'Mastercard MEA',      cat:'Paiement Global',  morocco:false },\n  'thepaypers.com':         { name:'The Paypers',         cat:'Paiement Global',  morocco:false },\n  'finextra.com':           { name:'Finextra',            cat:'Fintech Global',   morocco:false }\n};\n\n// Mots-clés positifs (+3 chacun)\nconst KEYWORDS_CORE = [\n  'paiement','payment','monétique','monetique','wallet','m-wallet','portefeuille électronique',\n  'qr code','softpos','soft pos','tap to phone','tap to mobile','tpe','terminal de paiement',\n  'carte bancaire','cartes bancaires','sans contact','contactless','tokenisation',\n  'mobile money','virement','e-commerce payment','passerelle de paiement','payment gateway',\n  'interopérabilité','interoperabilite','switch','acquiring','merchant acquiring',\n  'encaissement digital','recouvrement digital','paiement marchand','paiement commerçant',\n  'fraude paiement','sécurité paiement','open banking','bnpl','embedded finance','fatourati'\n];\n\n// Acteurs à surveiller (+2 chacun)\nconst KEYWORDS_ACTORS = [\n  'bank al-maghrib','bkam','ammc','acaps','cmi','centre monétique interbancaire',\n  'hps','switch al maghrib','morocco fintech','visa','mastercard',\n  'cash plus','wafacash','barid cash','al barid bank','inwi money','orange money',\n  'bank of africa','bmce','bmci','banque populaire','sgmb','société générale maroc',\n  'cih bank','credit du maroc','cfg bank','umnia bank','dabapay','payzone','m2t'\n];\n\n// Contexte Maroc (+2 chacun)\nconst KEYWORDS_MAROC = [\n  'maroc','marocain','marocaine','casablanca','rabat','marrakech','kenitra',\n  'royaume du maroc','bank al-maghrib','digitalisation au maroc','fintech maroc'\n];\n\n// Signaux business (+2 chacun)\nconst KEYWORDS_SIGNALS = [\n  'lancement','lance','déploiement','déploie','partenariat','accord','s\\'allie',\n  'investit','acquisition','prise de participation','homologation','agrément','licence',\n  'sandbox','circulaire','réglementation','cadre réglementaire','appel d\\'offres',\n  'nouvelle offre','nouveau service','nouvelle solution','intégration','migration'\n];\n\n// Mots-clés négatifs (-3 chacun)\nconst KEYWORDS_NEGATIVE = [\n  'tombola','jeu concours','promotion grand public','bon plan','sponsoring',\n  'recrutement','rh ','top employer','rse ','fondation ','durabilité',\n  'assemblée générale','nomination','carrière','formation interne',\n  'météo','agriculture','céréale','engrais','football','sport','culture',\n  'politique étrangère','diplomatie','ambassadeur','militaire','sécurité nationale',\n  'immobilier','foncier','urbanisme','transport funéraire','santé publique'\n];\n\nconst getDomain = (url) => {\n  try { return url.replace(/^https?:\\/\\//, '').replace(/^www\\./, '').split('/')[0]; }\n  catch(e) { return ''; }\n};\n\nconst calcScore = (text) => {\n  const t = text.toLowerCase();\n  let score = 0;\n  KEYWORDS_CORE.forEach(kw => { if (t.includes(kw)) score += 3; });\n  KEYWORDS_ACTORS.forEach(kw => { if (t.includes(kw)) score += 2; });\n  KEYWORDS_MAROC.forEach(kw => { if (t.includes(kw)) score += 2; });\n  KEYWORDS_SIGNALS.forEach(kw => { if (t.includes(kw)) score += 2; });\n  KEYWORDS_NEGATIVE.forEach(kw => { if (t.includes(kw)) score -= 3; });\n  return score;\n};\n\nconst articles = [];\nfor (const item of $input.all()) {\n  try {\n    const j = item.json;\n    if (!j || !j.title || typeof j.title !== 'string') continue;\n    const title = j.title.trim();\n    if (!title) continue;\n    const link = String(j.link || j.guid || '').trim();\n    const domain = getDomain(link);\n    const src = SOURCE_MAP[domain] || { name: domain || 'Inconnu', cat: 'Autre' };\n    const desc = String(j['content:encodedSnippet'] || j.contentSnippet || j.content || j.summary || '')\n      .replace(/<[^>]+>/g, '').replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').trim().slice(0, 400);\n    const pubDate = String(j.isoDate || j.pubDate || '');\n    const textToScore = title + ' ' + desc;\n    let preScore = calcScore(textToScore);\n    // Bonus +5 pour les sources marocaines — elles parlent du contexte local\n    if (src.morocco) preScore += 5;\n\n    // Seuil très bas : éliminer uniquement le contenu clairement hors-sujet\n    if (preScore < -3) continue;\n\n    articles.push({ title, link, pubDate, sourceName: src.name, sourceCategory: src.cat, desc, preScore });\n  } catch(e) { continue; }\n}\n\n// Trier par score décroissant, prendre les 15 meilleurs\nconst limited = articles.sort((a,b) => b.preScore - a.preScore).slice(0, 15);\nconsole.log('Articles valides après pré-scoring : ' + articles.length + ' — envoi à Groq : ' + limited.length);\nif (limited.length === 0) return [{ json: { _empty: true } }];\n\nconst lines = limited.map((a, i) =>\n  (i+1) + '. TITRE: ' + a.title + ' | SOURCE: ' + a.sourceName + ' | PRE_SCORE: ' + a.preScore + ' | DESC: ' + a.desc\n).join('\\n\\n');\n\nconst payload = {\n  model: 'llama-3.1-8b-instant',\n  temperature: 0.1,\n  max_tokens: 4000,\n  messages: [\n    {\n      role: 'system',\n      content: 'Tu es un analyste senior en veille stratégique bancaire au Maroc. Ta mission est d\\'évaluer si chaque article est réellement pertinent pour Attijariwafa Bank dans le paiement multicanal.\\n\\nTu dois privilégier : paiement mobile, wallet, QR code, cartes bancaires, TPE/SoftPOS, e-commerce payment, fintech marocaine, banques concurrentes marocaines (CIH Bank, Banque Populaire, BMCE Bank of Africa, Société Générale Maroc, BMCI, Crédit du Maroc, CFG Bank, Al Barid Bank), régulation paiements/fintech au Maroc, CMI, Bank Al-Maghrib, Visa, Mastercard, HPS.\\n\\nTu dois pénaliser : corporate générique, RH, RSE, sponsoring, météo, agriculture, politique sans lien paiement, contenu sans lien avec le Maroc.\\n\\nRetourne UNIQUEMENT un JSON valide sans markdown ni backticks : { \"articles\": [ ... ] }\\n\\nPour chaque article ces champs OBLIGATOIRES :\\n- is_relevant: true/false\\n- relevance_score: 0 à 100 (0-29=rejet, 30-59=à revoir, 60-100=à conserver)\\n- priority: high/medium/low\\n- categorie: Paiement multicanal | Banque concurrente | Fintech | Régulation | Gouvernement/Secteur public | Innovation | Partenariat | Nouveau produit/service | Autre\\n- type_signal: Lancement produit | Partenariat | Nouvel acteur | Évolution réglementaire | Initiative concurrente | Digitalisation | Levée de fonds | Tendance émergente | Information générale\\n- main_actor: acteur principal\\n- competitor_bank: banque concurrente citée ou vide\\n- summary: résumé 2 phrases orienté business en français\\n- why_it_matters: pourquoi c\\'est important pour Attijariwafa Bank\\n- opportunity: opportunité concrète ou vide\\n- threat: menace concrète ou vide\\n- recommended_action: action recommandée ou vide\\n- reason_if_rejected: raison du rejet si is_relevant=false, sinon vide'\n    },\n    {\n      role: 'user',\n      content: 'Analyse ces ' + limited.length + ' articles. IMPORTANT : certains viennent de sources marocaines (Medias24, L\\'Economiste, Finances News, etc.) — accorde-leur plus de crédit même si le titre paraît générique, car le contexte Maroc est implicite.\\n\\n' + lines\n    }\n  ]\n};\n\nconst meta = limited.map(a => ({ title: a.title, link: a.link, pubDate: a.pubDate, sourceName: a.sourceName, preScore: a.preScore }));\nreturn [{ json: { payload, meta } }];"
+      },
+      "id": "n04",
+      "name": "Pré-scoring & Préparer",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "n05",
+      "name": "A des articles?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer VOTRE_CLE_GROQ" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": {
+          "timeout": 60000,
+          "retry": { "enabled": false }
+        }
+      },
+      "id": "n06",
+      "name": "Analyser avec Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// ================================================================\n// NIVEAU 3 — DÉCISION FINALE : keep / review / reject\n// ================================================================\nconst raw = $input.first().json.choices?.[0]?.message?.content || '{}';\nlet parsed = {};\ntry {\n  // Nettoyer si Groq ajoute des backticks\n  const cleaned = raw.replace(/^```json?\\s*/,'').replace(/\\s*```$/,'').trim();\n  parsed = JSON.parse(cleaned);\n} catch(e) { parsed = { articles: [] }; }\n\nconst aiArticles = Array.isArray(parsed.articles) ? parsed.articles : [];\nconst meta = $('Pré-scoring & Préparer').first().json.meta || [];\n\nconst now = new Date();\nconst dateCollecte = now.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }) + ' ' + now.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });\n\nreturn aiArticles.map((ai, i) => {\n  const m = meta[i] || {};\n  const pubDateFormatted = m.pubDate ? new Date(m.pubDate).toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' }) : '';\n\n  // Décision finale\n  const score = Number(ai.relevance_score) || 0;\n  let decision = 'Rejeté';\n  if (score >= 60) decision = 'À conserver';\n  else if (score >= 30) decision = 'À revoir';\n\n  return { json: {\n    'Date de collecte':   dateCollecte,\n    'Titre':              m.title || '',\n    'Source':             m.sourceName || '',\n    'Lien':               m.link || '',\n    'Date publication':   pubDateFormatted,\n    'Résumé':             ai.summary || '',\n    'Catégorie':          ai.categorie || 'Autre',\n    'Sous-catégorie':     ai.why_it_matters || '',\n    'Type de signal':     ai.type_signal || '',\n    'Acteurs cités':      ai.main_actor || '',\n    'Banque concurrente': ai.competitor_bank || '',\n    'Importance':         ai.priority === 'high' ? 'Élevée' : ai.priority === 'medium' ? 'Moyenne' : 'Faible',\n    'Opportunité':        ai.opportunity || '',\n    'Menace':             ai.threat || '',\n    'Impact pour AWB':    ai.why_it_matters || '',\n    'Action recommandée': ai.recommended_action || '',\n    'Pertinent':          ai.is_relevant === true ? 'true' : 'false',\n    'Statut':             decision\n  }};\n});"
+      },
+      "id": "n07",
+      "name": "Décision finale",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 240]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json.relevance_score }}",
+              "rightValue": 30,
+              "operator": { "type": "number", "operation": "gte" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "n08",
+      "name": "Score >= 30?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 240]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "VOTRE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Veille",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "n09",
+      "name": "Sauvegarder dans Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [2000, 180],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REMPLACER_PAR_ID_CREDENTIAL_GOOGLE",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Toutes les 3 heures": {
+      "main": [[{ "node": "Liste des sources", "type": "main", "index": 0 }]]
+    },
+    "Liste des sources": {
+      "main": [[{ "node": "Lire RSS", "type": "main", "index": 0 }]]
+    },
+    "Lire RSS": {
+      "main": [[{ "node": "Pré-scoring & Préparer", "type": "main", "index": 0 }]]
+    },
+    "Pré-scoring & Préparer": {
+      "main": [[{ "node": "A des articles?", "type": "main", "index": 0 }]]
+    },
+    "A des articles?": {
+      "main": [
+        [{ "node": "Analyser avec Groq", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Analyser avec Groq": {
+      "main": [[{ "node": "Décision finale", "type": "main", "index": 0 }]]
+    },
+    "Décision finale": {
+      "main": [[{ "node": "Score >= 30?", "type": "main", "index": 0 }]]
+    },
+    "Score >= 30?": {
+      "main": [
+        [{ "node": "Sauvegarder dans Google Sheets", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "staticData": null,
+  "meta": { "instanceId": "veille-awb-mvp" },
+  "pinData": {}
+}

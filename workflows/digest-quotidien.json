@@ -1,0 +1,178 @@
+{
+  "name": "Veille Stratégique — Digest Quotidien",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1-5"
+            }
+          ]
+        }
+      },
+      "id": "b1000001-0000-0000-0000-000000000001",
+      "name": "08h00 Lun-Ven",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "documentId": {
+          "__rl": true,
+          "value": "VOTRE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Veille",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "b1000002-0000-0000-0000-000000000002",
+      "name": "Lire Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [460, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REMPLACER_PAR_ID_CREDENTIAL_GOOGLE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Filtrer les articles d'aujourd'hui et construire le digest\nconst today = new Date();\nconst todayStr = today.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });\n\nconst allItems = $input.all();\n\n// Filtrer les articles du jour avec importance Élevée ou Moyenne\nconst todayItems = allItems.filter(item => {\n  const d = item.json['Date de collecte'] || '';\n  return d.startsWith(todayStr) || d.includes(todayStr);\n});\n\nconst elevated = todayItems.filter(i => i.json['Importance'] === 'Élevée');\nconst medium   = todayItems.filter(i => i.json['Importance'] === 'Moyenne');\nconst competitors = todayItems.filter(i => i.json['Banque concurrente'] && i.json['Banque concurrente'].trim() !== '');\nconst opportunities = todayItems.filter(i => i.json['Opportunité'] && i.json['Opportunité'].trim() !== '');\nconst threats  = todayItems.filter(i => i.json['Menace'] && i.json['Menace'].trim() !== '');\n\nif (todayItems.length === 0) {\n  return [{ json: { _skip: true, message: 'Aucun article collecté aujourd\\'hui' } }];\n}\n\n// Sérialiser pour le prompt OpenAI\nconst formatArticle = (item, idx) => {\n  const j = item.json;\n  return `${idx + 1}. [${j['Importance'] || ''}] ${j['Titre'] || ''}\n   Source: ${j['Source'] || ''} | Catégorie: ${j['Catégorie'] || ''}\n   Signal: ${j['Type de signal'] || ''}\n   Résumé: ${j['Résumé'] || ''}\n   Opportunité: ${j['Opportunité'] || 'N/A'}\n   Menace: ${j['Menace'] || 'N/A'}\n   Action: ${j['Action recommandée'] || 'N/A'}`;\n};\n\nconst topArticles = [...elevated, ...medium].slice(0, 15);\nconst articlesText = topArticles.map(formatArticle).join('\\n\\n');\n\nreturn [{\n  json: {\n    date: todayStr,\n    total: todayItems.length,\n    nb_eleves: elevated.length,\n    nb_moyens: medium.length,\n    nb_concurrents: competitors.length,\n    articles_text: articlesText,\n    elevated_items: elevated.slice(0, 8).map(i => i.json),\n    medium_items: medium.slice(0, 6).map(i => i.json),\n    competitor_items: competitors.slice(0, 5).map(i => i.json),\n    opportunity_items: opportunities.slice(0, 5).map(i => i.json),\n    threat_items: threats.slice(0, 5).map(i => i.json)\n  }\n}];"
+      },
+      "id": "b1000003-0000-0000-0000-000000000003",
+      "name": "Préparer données digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cond-skip",
+              "leftValue": "={{ $json._skip }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      },
+      "id": "b1000004-0000-0000-0000-000000000004",
+      "name": "A des données?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer VOTRE_CLE_OPENAI" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "string",
+        "body": "={\n  \"model\": \"gpt-4o-mini\",\n  \"temperature\": 0.3,\n  \"max_tokens\": 2000,\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"Tu es un directeur intelligence stratégique chez Attijariwafa Bank. Tu rédiges le digest quotidien de veille stratégique destiné à la direction Paiement Multicanal.\\n\\nRègle : sois concis, professionnel, orienté décision business. Parle en analyste senior, pas en journaliste.\\n\\nRetourne un objet JSON avec exactement ces champs :\\n- titre_digest : titre accrocheur du digest du jour (ex: \\\"3 signaux forts sur le paiement mobile au Maroc\\\")\\n- synthese_executive : paragraphe de 3-4 phrases résumant les faits saillants stratégiques du jour\\n- top_signaux : liste des 5 signaux les plus importants, chacun avec { signal, source, impact_awb, urgence: Haute|Moyenne|Faible }\\n- top_opportunites : liste des 3 meilleures opportunités pour AWB, chacune avec { titre, description, action }\\n- top_menaces : liste des 3 menaces les plus sérieuses, chacune avec { titre, description, action }\\n- initiatives_concurrentes : liste des initiatives concurrentes notables, chacune avec { banque, initiative, impact }\\n- recommandation_du_jour : 1-2 phrases sur la priorité stratégique du jour\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Date du digest : {{ $json.date }}\\nTotal articles collectés : {{ $json.total }} (dont {{ $json.nb_eleves }} importance Élevée, {{ $json.nb_moyens }} Moyenne, {{ $json.nb_concurrents }} mentionnant une banque concurrente)\\n\\nArticles principaux :\\n\\n{{ $json.articles_text }}\"\n    }\n  ]\n}",
+        "options": { "timeout": 45000 }
+      },
+      "id": "b1000005-0000-0000-0000-000000000005",
+      "name": "Générer Digest OpenAI",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 240]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Construire l'email HTML professionnel\nconst aiRaw = $json.choices?.[0]?.message?.content || '{}';\nlet digest = {};\ntry {\n  digest = JSON.parse(aiRaw);\n} catch(e) {\n  digest = { titre_digest: 'Digest de veille', synthese_executive: aiRaw, top_signaux: [], top_opportunites: [], top_menaces: [], initiatives_concurrentes: [], recommandation_du_jour: '' };\n}\n\nconst meta = $('Préparer données digest').item.json;\nconst date = meta.date;\nconst total = meta.total;\n\nconst color = { primary: '#1B3A6B', gold: '#C9AA71', green: '#27AE60', red: '#C0392B', orange: '#E67E22', lightBg: '#F4F6FB', white: '#FFFFFF', text: '#2C3E50', light: '#7F8C8D' };\n\nconst signalRow = (s) => `\n  <tr>\n    <td style=\"padding:10px 12px; border-bottom:1px solid #E8ECF0;\">\n      <span style=\"display:inline-block; padding:2px 8px; border-radius:3px; font-size:11px; font-weight:bold; background:${ s.urgence === 'Haute' ? color.red : s.urgence === 'Moyenne' ? color.orange : color.green }; color:#fff; margin-right:8px;\">${s.urgence}</span>\n      <strong style=\"color:${color.text};\">${s.signal}</strong>\n      <div style=\"font-size:12px; color:${color.light}; margin-top:3px;\">Source : ${s.source}</div>\n      <div style=\"font-size:13px; color:${color.text}; margin-top:4px;\">${s.impact_awb}</div>\n    </td>\n  </tr>`;\n\nconst oppRow = (o) => `\n  <tr>\n    <td style=\"padding:10px 12px; border-bottom:1px solid #E8ECF0; border-left:3px solid ${color.green};\">\n      <strong style=\"color:${color.green};\">▸ ${o.titre}</strong>\n      <div style=\"font-size:13px; color:${color.text}; margin-top:4px;\">${o.description}</div>\n      <div style=\"font-size:12px; color:${color.green}; margin-top:4px; font-style:italic;\">→ ${o.action}</div>\n    </td>\n  </tr>`;\n\nconst threatRow = (t) => `\n  <tr>\n    <td style=\"padding:10px 12px; border-bottom:1px solid #E8ECF0; border-left:3px solid ${color.red};\">\n      <strong style=\"color:${color.red};\">▲ ${t.titre}</strong>\n      <div style=\"font-size:13px; color:${color.text}; margin-top:4px;\">${t.description}</div>\n      <div style=\"font-size:12px; color:${color.red}; margin-top:4px; font-style:italic;\">→ ${t.action}</div>\n    </td>\n  </tr>`;\n\nconst compRow = (c) => `\n  <tr>\n    <td style=\"padding:10px 12px; border-bottom:1px solid #E8ECF0;\">\n      <span style=\"background:${color.primary}; color:#fff; padding:2px 8px; border-radius:3px; font-size:11px; font-weight:bold; margin-right:8px;\">${c.banque}</span>\n      <span style=\"color:${color.text};\">${c.initiative}</span>\n      <div style=\"font-size:12px; color:${color.orange}; margin-top:4px;\">Impact : ${c.impact}</div>\n    </td>\n  </tr>`;\n\nconst html = `<!DOCTYPE html>\n<html lang=\"fr\">\n<head><meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"></head>\n<body style=\"margin:0; padding:0; background:#E9EDF2; font-family: 'Segoe UI', Arial, sans-serif;\">\n\n<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#E9EDF2; padding:30px 0;\">\n<tr><td align=\"center\">\n\n<!-- CONTAINER -->\n<table width=\"680\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:${color.white}; border-radius:8px; overflow:hidden; box-shadow:0 2px 12px rgba(0,0,0,0.12);\">\n\n<!-- HEADER -->\n<tr><td style=\"background:${color.primary}; padding:28px 36px;\">\n  <table width=\"100%\"><tr>\n    <td>\n      <div style=\"font-size:11px; color:${color.gold}; font-weight:600; letter-spacing:2px; text-transform:uppercase; margin-bottom:6px;\">VEILLE STRATÉGIQUE</div>\n      <div style=\"font-size:22px; color:#FFFFFF; font-weight:700; line-height:1.3;\">${digest.titre_digest || 'Digest du ' + date}</div>\n      <div style=\"font-size:13px; color:rgba(255,255,255,0.7); margin-top:6px;\">${date} &nbsp;|&nbsp; ${total} articles analysés</div>\n    </td>\n    <td align=\"right\" style=\"width:80px;\">\n      <div style=\"font-size:36px; color:${color.gold};\">📊</div>\n    </td>\n  </tr></table>\n</td></tr>\n\n<!-- BANDEAU AWB -->\n<tr><td style=\"background:${color.gold}; padding:8px 36px;\">\n  <span style=\"font-size:12px; color:${color.primary}; font-weight:700; letter-spacing:1px;\">DIVISION PAIEMENT MULTICANAL — MAROC</span>\n</td></tr>\n\n<!-- SYNTHÈSE EXECUTIVE -->\n<tr><td style=\"padding:28px 36px; background:${color.lightBg}; border-bottom:1px solid #DDE3EF;\">\n  <div style=\"font-size:11px; font-weight:700; color:${color.gold}; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:10px;\">SYNTHÈSE EXÉCUTIVE</div>\n  <p style=\"font-size:14px; color:${color.text}; line-height:1.7; margin:0;\">${digest.synthese_executive || ''}</p>\n  ${digest.recommandation_du_jour ? `<div style=\"margin-top:14px; padding:12px 16px; background:${color.primary}; border-radius:4px; color:#fff; font-size:13px;\"><strong>📌 Priorité du jour :</strong> ${digest.recommandation_du_jour}</div>` : ''}\n</td></tr>\n\n<!-- STATS RAPIDES -->\n<tr><td style=\"padding:20px 36px; border-bottom:1px solid #DDE3EF;\">\n  <table width=\"100%\"><tr>\n    <td align=\"center\" style=\"background:#FFF0F0; border-radius:6px; padding:14px; width:30%;\">\n      <div style=\"font-size:28px; font-weight:800; color:${color.red};\">${meta.nb_eleves}</div>\n      <div style=\"font-size:11px; color:${color.light}; text-transform:uppercase; letter-spacing:1px;\">Importance Élevée</div>\n    </td>\n    <td width=\"3%\"></td>\n    <td align=\"center\" style=\"background:#FFF8EC; border-radius:6px; padding:14px; width:30%;\">\n      <div style=\"font-size:28px; font-weight:800; color:${color.orange};\">${meta.nb_moyens}</div>\n      <div style=\"font-size:11px; color:${color.light}; text-transform:uppercase; letter-spacing:1px;\">Importance Moyenne</div>\n    </td>\n    <td width=\"3%\"></td>\n    <td align=\"center\" style=\"background:#EBF0FA; border-radius:6px; padding:14px; width:30%;\">\n      <div style=\"font-size:28px; font-weight:800; color:${color.primary};\">${meta.nb_concurrents}</div>\n      <div style=\"font-size:11px; color:${color.light}; text-transform:uppercase; letter-spacing:1px;\">Initiatives concurrentes</div>\n    </td>\n  </tr></table>\n</td></tr>\n\n<!-- TOP SIGNAUX -->\n${digest.top_signaux?.length ? `\n<tr><td style=\"padding:24px 36px; border-bottom:1px solid #DDE3EF;\">\n  <div style=\"font-size:11px; font-weight:700; color:${color.primary}; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:14px;\">🔍 TOP SIGNAUX DU JOUR</div>\n  <table width=\"100%\" style=\"border-radius:6px; overflow:hidden; border:1px solid #DDE3EF;\">\n    ${digest.top_signaux.slice(0,5).map(signalRow).join('')}\n  </table>\n</td></tr>` : ''}\n\n<!-- OPPORTUNITÉS -->\n${digest.top_opportunites?.length ? `\n<tr><td style=\"padding:24px 36px; border-bottom:1px solid #DDE3EF;\">\n  <div style=\"font-size:11px; font-weight:700; color:${color.green}; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:14px;\">✅ OPPORTUNITÉS POUR AWB</div>\n  <table width=\"100%\" style=\"border-radius:6px; overflow:hidden; border:1px solid #DDE3EF;\">\n    ${digest.top_opportunites.slice(0,3).map(oppRow).join('')}\n  </table>\n</td></tr>` : ''}\n\n<!-- MENACES -->\n${digest.top_menaces?.length ? `\n<tr><td style=\"padding:24px 36px; border-bottom:1px solid #DDE3EF;\">\n  <div style=\"font-size:11px; font-weight:700; color:${color.red}; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:14px;\">⚠️ MENACES À SURVEILLER</div>\n  <table width=\"100%\" style=\"border-radius:6px; overflow:hidden; border:1px solid #DDE3EF;\">\n    ${digest.top_menaces.slice(0,3).map(threatRow).join('')}\n  </table>\n</td></tr>` : ''}\n\n<!-- CONCURRENTS -->\n${digest.initiatives_concurrentes?.length ? `\n<tr><td style=\"padding:24px 36px; border-bottom:1px solid #DDE3EF;\">\n  <div style=\"font-size:11px; font-weight:700; color:${color.orange}; letter-spacing:1.5px; text-transform:uppercase; margin-bottom:14px;\">🏦 INITIATIVES DES BANQUES CONCURRENTES</div>\n  <table width=\"100%\" style=\"border-radius:6px; overflow:hidden; border:1px solid #DDE3EF;\">\n    ${digest.initiatives_concurrentes.slice(0,4).map(compRow).join('')}\n  </table>\n</td></tr>` : ''}\n\n<!-- FOOTER -->\n<tr><td style=\"background:${color.primary}; padding:20px 36px; text-align:center;\">\n  <div style=\"font-size:12px; color:rgba(255,255,255,0.6);\">Veille automatisée — Division Paiement Multicanal — Attijariwafa Bank</div>\n  <div style=\"font-size:11px; color:rgba(255,255,255,0.4); margin-top:4px;\">Généré le ${date} via n8n + OpenAI</div>\n</td></tr>\n\n</table>\n</td></tr></table>\n\n</body>\n</html>`;\n\nreturn [{ json: { html, subject: `[Veille AWB] ${digest.titre_digest || 'Digest du ' + date}`, date } }];"
+      },
+      "id": "b1000006-0000-0000-0000-000000000006",
+      "name": "Construire Email HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 240]
+    },
+    {
+      "parameters": {
+        "sendTo": "destinataire@exemple.com",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "message": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "b1000007-0000-0000-0000-000000000007",
+      "name": "Envoyer Digest Email",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1560, 240],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "REMPLACER_PAR_ID_CREDENTIAL_GMAIL",
+          "name": "Gmail account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "08h00 Lun-Ven": {
+      "main": [
+        [{ "node": "Lire Google Sheets", "type": "main", "index": 0 }]
+      ]
+    },
+    "Lire Google Sheets": {
+      "main": [
+        [{ "node": "Préparer données digest", "type": "main", "index": 0 }]
+      ]
+    },
+    "Préparer données digest": {
+      "main": [
+        [{ "node": "A des données?", "type": "main", "index": 0 }]
+      ]
+    },
+    "A des données?": {
+      "main": [
+        [{ "node": "Générer Digest OpenAI", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Générer Digest OpenAI": {
+      "main": [
+        [{ "node": "Construire Email HTML", "type": "main", "index": 0 }]
+      ]
+    },
+    "Construire Email HTML": {
+      "main": [
+        [{ "node": "Envoyer Digest Email", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "veille-awb-mvp"
+  },
+  "pinData": {}
+}

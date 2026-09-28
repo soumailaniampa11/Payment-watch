@@ -1,0 +1,10 @@
+# Fichiers originaux contenant des secrets (clés API, IDs) — ne jamais versionner
+/CDC.txt
+/workflow_agent.json
+/workflow_digest.json
+/workflow_collection.json
+/google_sheet_init.gs
+
+.env
+*.local.json
+.DS_Store

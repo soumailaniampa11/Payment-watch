@@ -1,0 +1,207 @@
+{
+  "name": "Veille — Agent NewsData Maroc",
+  "nodes": [
+    {
+      "id": "a01",
+      "name": "Toutes les 3 heures",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 300],
+      "parameters": {
+        "rule": { "interval": [{ "field": "hours", "hoursInterval": 3 }] }
+      }
+    },
+    {
+      "id": "a02",
+      "name": "Liste des requêtes",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  { json: { q: 'paiement mobile OR wallet OR monétique' }},\n  { json: { q: 'TPE OR QR code OR SoftPOS OR sans contact' }},\n  { json: { q: 'fintech OR CMI OR HPS' }},\n  { json: { q: 'CIH Bank OR BMCE OR Banque Populaire OR Société Générale Maroc' }},\n  { json: { q: 'Visa OR Mastercard OR carte bancaire Maroc' }},\n  { json: { q: 'digitalisation service public OR e-gov OR administration numérique Maroc' }},\n  { json: { q: 'Bank Al-Maghrib OR réglementation fintech OR agrément paiement' }},\n  { json: { q: 'startup Maroc OR e-commerce Maroc OR marketplace Maroc' }},\n  { json: { q: 'open banking OR BNPL OR transformation numérique Maroc' }},\n  { json: { q: 'CNSS OR DGI OR impôts OR CMR OR paiement en ligne Maroc' }}\n];"
+      }
+    },
+    {
+      "id": "a03",
+      "name": "Appel NewsData",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [680, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "https://newsdata.io/api/1/news",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "VOTRE_CLE_NEWSDATA" },
+            { "name": "language", "value": "fr" },
+            { "name": "country", "value": "ma" },
+            { "name": "size", "value": "5" },
+            { "name": "q", "value": "={{ $json.q }}" }
+          ]
+        },
+        "options": { "timeout": 15000 }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "a04",
+      "name": "Agréger articles",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const seen = new Set();\nconst articles = [];\nconst fromDate = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);\n\nfor (const item of $input.all()) {\n  const results = item.json.results || [];\n  for (const a of results) {\n    if (!a.title || !a.link) continue;\n    if (seen.has(a.link)) continue;\n    // Filtrer articles trop anciens\n    if (a.pubDate) {\n      const pub = new Date(a.pubDate);\n      if (!isNaN(pub.getTime()) && pub < fromDate) continue;\n    }\n    seen.add(a.link);\n    articles.push({\n      titre: (a.title || '').slice(0, 200),\n      source: a.source_id || '',\n      lien: a.link || '',\n      date: a.pubDate || '',\n      desc: (a.description || a.content || '').replace(/<[^>]+>/g, '').slice(0, 150)\n    });\n  }\n}\n\n// Limiter à 20 articles max pour ne pas dépasser le contexte Groq\nconst limited = articles.slice(0, 8);\nconsole.log('Articles collectés:', articles.length, '| Envoyés à Groq:', limited.length);\nif (limited.length === 0) return [{ json: { _empty: true } }];\n\nconst lines = limited.map((a, i) =>\n  (i+1) + '. TITRE: ' + a.titre + ' | SOURCE: ' + a.source + ' | DATE: ' + a.date + ' | DESC: ' + a.desc\n).join('\\n\\n');\n\nconst payload = {\n  model: 'llama-3.3-70b-versatile',\n  temperature: 0.1,\n  max_tokens: 6000,\n  messages: [\n    {\n      role: 'system',\n      content: 'Analyste veille stratégique pour Attijariwafa Bank (AWB), division Paiement Multicanal Maroc. Retourne UNIQUEMENT du JSON pur sans markdown : { \"articles\": [...] }\\n\\nPour chaque article, champs OBLIGATOIRES :\\n- titre, source, lien, date_publication\\n- resume: 1 phrase\\n- categorie: Paiement multicanal|Banque concurrente|Fintech|Régulation|Service public|E-commerce|Innovation|Partenariat|Autre\\n- type_signal: Lancement produit|Partenariat|Évolution réglementaire|Initiative concurrente|Digitalisation|Opportunité marché|Tendance émergente|Information générale\\n- acteurs_cites, banque_concurrente\\n- importance: Élevée|Moyenne|Faible\\n- opportunite: comment AWB peut en profiter concrètement (OBLIGATOIRE)\\n- menace: quel risque pour AWB ou avantage concurrent (OBLIGATOIRE)\\n- impact_awb: 1 phrase\\n- action_recommandee: 1 action concrète pour AWB\\n- score: 0-100 (0-29=non pertinent, 30-59=pertinent, 60-100=très pertinent)'\n    },\n    {\n      role: 'user',\n      content: 'Analyse ces ' + limited.length + ' articles :\\n\\n' + lines\n    }\n  ]\n};\n\nreturn [{ json: { payload, count: articles.length } }];"
+      }
+    },
+    {
+      "id": "a05",
+      "name": "A des articles?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "id": "a06",
+      "name": "Analyser avec Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1340, 240],
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer VOTRE_CLE_GROQ" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.payload }}",
+        "options": { "timeout": 60000 }
+      }
+    },
+    {
+      "id": "a07",
+      "name": "Parser résultats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 240],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const raw = $input.first().json.choices?.[0]?.message?.content || '';\nif (!raw) return [{ json: { debug: 'GROQ_NO_RESPONSE', input: JSON.stringify($input.first().json).slice(0, 300) } }];\nlet parsed = {};\ntry {\n  const start = raw.indexOf('{');\n  const end = raw.lastIndexOf('}');\n  if (start === -1 || end === -1) return [{ json: { debug: 'NO_JSON_IN_RESPONSE', raw: raw.slice(0, 500) } }];\n  parsed = JSON.parse(raw.slice(start, end + 1));\n} catch(e) {\n  return [{ json: { debug: 'JSON_PARSE_ERROR', error: e.message, raw: raw.slice(0, 500) } }];\n}\n\nconst articles = Array.isArray(parsed.articles) ? parsed.articles : [];\nif (articles.length === 0) return [{ json: { debug: 'NO_ARTICLES_IN_JSON', raw: raw.slice(0, 500) } }];\n\nconst scores = articles.map(a => a.score);\nconst relevant = articles.filter(a => (Number(a.score) || 0) >= 30);\nif (relevant.length === 0) return [{ json: { debug: 'ALL_SCORES_BELOW_30', total: articles.length, scores: scores.join(','), sample_titre: articles[0].titre } }];\n\nconst now = new Date();\nconst dateCollecte = now.toLocaleDateString('fr-FR', { day:'2-digit', month:'2-digit', year:'numeric' })\n  + ' ' + now.toLocaleTimeString('fr-FR', { hour:'2-digit', minute:'2-digit' });\n\nreturn relevant.map(a => ({ json: {\n  'Date de collecte':   dateCollecte,\n  'Titre':              String(a.titre || '').slice(0, 300),\n  'Source':             String(a.source || ''),\n  'Lien':               String(a.lien || ''),\n  'Date publication':   String(a.date_publication || ''),\n  'Résumé':             String(a.resume || '').slice(0, 500),\n  'Catégorie':          String(a.categorie || 'Autre'),\n  'Sous-catégorie':     String(a.impact_awb || ''),\n  'Type de signal':     String(a.type_signal || ''),\n  'Acteurs cités':      String(a.acteurs_cites || ''),\n  'Banque concurrente': String(a.banque_concurrente || ''),\n  'Importance':         String(a.importance || 'Faible'),\n  'Opportunité':        String(a.opportunite || ''),\n  'Menace':             String(a.menace || ''),\n  'Impact pour AWB':    String(a.impact_awb || ''),\n  'Action recommandée': String(a.action_recommandee || ''),\n  'Pertinent':          'true',\n  'Statut':             Number(a.score) >= 60 ? 'À conserver' : 'À revoir'\n}}));"
+      }
+    },
+    {
+      "id": "a08",
+      "name": "A sauvegarder?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1780, 240],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "c2",
+              "leftValue": "={{ $json._empty }}",
+              "rightValue": true,
+              "operator": { "type": "boolean", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true
+      }
+    },
+    {
+      "id": "a09",
+      "name": "Sauvegarder dans Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.3,
+      "position": [2000, 180],
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "VOTRE_SPREADSHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Veille",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REMPLACER_PAR_ID_CREDENTIAL_GOOGLE",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Toutes les 3 heures": {
+      "main": [[{ "node": "Liste des requêtes", "type": "main", "index": 0 }]]
+    },
+    "Liste des requêtes": {
+      "main": [[{ "node": "Appel NewsData", "type": "main", "index": 0 }]]
+    },
+    "Appel NewsData": {
+      "main": [[{ "node": "Agréger articles", "type": "main", "index": 0 }]]
+    },
+    "Agréger articles": {
+      "main": [[{ "node": "A des articles?", "type": "main", "index": 0 }]]
+    },
+    "A des articles?": {
+      "main": [
+        [{ "node": "Analyser avec Groq", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Analyser avec Groq": {
+      "main": [[{ "node": "Parser résultats", "type": "main", "index": 0 }]]
+    },
+    "Parser résultats": {
+      "main": [[{ "node": "A sauvegarder?", "type": "main", "index": 0 }]]
+    },
+    "A sauvegarder?": {
+      "main": [
+        [{ "node": "Sauvegarder dans Google Sheets", "type": "main", "index": 0 }],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "saveManualExecutions": true },
+  "staticData": null,
+  "meta": { "instanceId": "veille-awb-agent" },
+  "pinData": {}
+}
