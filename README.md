@@ -1,264 +1,180 @@
-# Veille stratégique automatisée — Paiement multicanal au Maroc
+# Automated Intelligence Monitoring
 
-MVP d'un outil de **veille stratégique automatisée** construit avec **n8n**. Il surveille l'écosystème du paiement, de la fintech et de la concurrence bancaire au Maroc, et produit une **lecture business** des actualités. Les signaux sont analysés du point de vue d'Attijariwafa Bank (AWB) : opportunités, menaces, initiatives concurrentes et actions recommandées.
+### Veille stratégique automatisée sur le paiement et la fintech au Maroc
 
-> La question à laquelle l'outil répond :
-> *« Quelles sont les nouveautés importantes dans le paiement et la fintech au Maroc qui représentent une opportunité, une menace ou un signal à suivre pour Attijariwafa Bank ? »*
+Suivre l'actualité du paiement au Maroc prend du temps. Les annonces des banques concurrentes, les nouvelles fintechs, les circulaires de Bank Al-Maghrib et les projets de digitalisation publique sont publiés dans des dizaines de médias différents. Le plus difficile n'est pas de trouver l'information, mais de repérer vite ce qui compte vraiment pour la banque.
 
----
+Ce projet automatise ce travail. Plusieurs fois par jour, il collecte les articles de presse marocains sur ces sujets. Il les fait lire par un modèle d'IA qui raisonne comme un analyste de la division Paiement Multicanal d'Attijariwafa Bank, et ne conserve que ce qui mérite de l'attention. Chaque matin, un digest arrive par email avec l'essentiel de la veille.
 
-## Ce que fait le projet
+L'objectif n'est pas d'obtenir des résumés d'articles, mais des réponses à des questions métier :
 
-| Étape | Ce qui se passe |
-|---|---|
-| **Collecte** | Toutes les 3 h, 10 requêtes thématiques sont envoyées à l'API NewsData.io (articles marocains, en français, des 14 derniers jours). |
-| **Nettoyage** | Les articles sont agrégés, dédoublonnés par lien, puis limités à 8 par lot pour que la réponse du LLM ne soit pas tronquée. |
-| **Analyse IA** | Le modèle Groq (`llama-3.3-70b-versatile`) classe chaque article et produit une analyse structurée orientée AWB. |
-| **Filtrage** | Seuls les articles dont le score de pertinence est d'au moins 30/100 sont conservés. |
-| **Stockage** | Les signaux retenus sont ajoutés dans Google Sheets (18 colonnes). |
-| **Diffusion** | Du lundi au vendredi à 8 h, un digest HTML est généré et envoyé par Gmail : top signaux, opportunités, menaces et initiatives concurrentes. |
-
-### Axes de veille couverts
-
-- **Concurrence bancaire** : CIH Bank, Banque Populaire, BMCE / Bank of Africa, Société Générale Maroc, BMCI, Crédit du Maroc, CFG Bank, Al Barid Bank
-- **Paiement multicanal** : wallet, monétique, TPE, QR code, SoftPOS, sans contact, cartes
-- **Fintech** : CMI, HPS, startups, PSP, e-commerce
-- **Régulation** : Bank Al-Maghrib, agréments, cadre fintech
-- **Secteur public** : e-gov, CNSS, DGI, CMR, paiement en ligne des administrations
-- **Innovation** : open banking, BNPL, embedded finance
+- Est-ce que ce sujet concerne notre activité ?
+- Un concurrent est-il en train de prendre de l'avance ?
+- Y a-t-il une opportunité de partenariat ou de positionnement ?
+- Que devrait-on faire concrètement ?
 
 ---
 
-## Architecture globale
+## Comment ça fonctionne
+
+Le système repose sur deux automatisations indépendantes, construites avec [n8n](https://n8n.io). Google Sheets sert de base de données entre les deux.
 
 ```mermaid
 flowchart LR
-    subgraph Sources
-        ND[("NewsData.io<br/>country=ma · lang=fr")]
-    end
+    NEWS[("Presse marocaine<br/>via NewsData.io")]
+    A["Collecte et analyse<br/>toutes les 3 heures"]
+    SHEET[("Google Sheets<br/>base de veille")]
+    D["Digest quotidien<br/>8h, du lundi au vendredi"]
+    MAIL["Email à la direction<br/>Paiement Multicanal"]
 
-    subgraph n8n["n8n (Docker · localhost:5678)"]
-        WA["Workflow 1<br/>Agent de collecte<br/>⏱ toutes les 3 h"]
-        WD["Workflow 2<br/>Digest quotidien<br/>⏱ 8 h, lun-ven"]
-    end
-
-    subgraph IA["Modèles IA"]
-        GROQ["Groq<br/>llama-3.3-70b"]
-        OAI["OpenAI<br/>gpt-4o-mini"]
-    end
-
-    GS[("Google Sheets<br/>Veille · Digest · Sources")]
-    MAIL["📧 Email HTML<br/>Direction Paiement"]
-
-    ND --> WA
-    WA <--> GROQ
-    WA --> GS
-    GS --> WD
-    WD <--> OAI
-    WD --> MAIL
+    NEWS --> A --> SHEET --> D --> MAIL
 ```
+
+La première automatisation alimente la base en continu. La seconde la relit chaque matin pour en tirer une synthèse. Cette séparation permet de consulter la base à tout moment dans le Google Sheet, sans attendre le digest.
 
 ---
 
-## Workflow 1 : Agent de collecte et d'analyse
+## 1. Collecte et analyse des articles
 
-Fichier : [`workflows/veille-agent-newsdata.json`](workflows/veille-agent-newsdata.json)
+Toutes les trois heures, le système interroge NewsData.io avec dix recherches thématiques qui couvrent le périmètre de la veille :
+
+| Thème | Exemples de mots-clés |
+|---|---|
+| Paiement et monétique | wallet, paiement mobile, TPE, QR code, SoftPOS, sans contact |
+| Acteurs du paiement | CMI, HPS, Visa, Mastercard |
+| Banques concurrentes | CIH Bank, BMCE, Banque Populaire, Société Générale Maroc |
+| Régulation | Bank Al-Maghrib, agréments de paiement, cadre fintech |
+| Secteur public | e-gov, CNSS, DGI, CMR, paiement en ligne des administrations |
+| Marché et innovation | startups, e-commerce, open banking, BNPL |
+
+Seuls les articles publiés au Maroc, en français, au cours des 14 derniers jours sont retenus. Les doublons sont supprimés, car un même article peut remonter dans plusieurs recherches.
+
+Les articles sont ensuite envoyés au modèle de langage (Llama 3.3 70B via Groq). Pour chacun, le modèle rédige une fiche d'analyse : un résumé, une catégorie, le type de signal, les acteurs cités et un niveau d'importance. Il indique surtout, du point de vue d'AWB, **l'opportunité à saisir, la menace à surveiller et une action recommandée**. Ces deux derniers champs sont obligatoires dans les consignes du modèle, pour éviter les analyses génériques.
+
+Enfin, chaque article reçoit un score de pertinence sur 100. Seuls ceux qui atteignent 30 sont enregistrés dans le Google Sheet.
 
 ```mermaid
 flowchart TD
-    T(["⏱ Toutes les 3 heures<br/><i>Schedule Trigger</i>"])
-    Q["📝 Liste des requêtes<br/><i>Code · 10 requêtes thématiques</i>"]
-    N["🌐 Appel NewsData<br/><i>HTTP GET × 10 · country=ma · size=5</i>"]
-    A["🧹 Agréger articles<br/><i>Code · dédoublonnage · filtre 14 j · max 8</i>"]
-    C1{"A des articles ?"}
-    G["🤖 Analyser avec Groq<br/><i>HTTP POST · llama-3.3-70b · temp 0.1</i>"]
-    P["🔍 Parser résultats<br/><i>Code · JSON → 18 colonnes · score ≥ 30</i>"]
-    C2{"A sauvegarder ?"}
-    S[("📊 Google Sheets<br/><i>Append · onglet Veille</i>")]
-    X1(("fin"))
-    X2(("fin"))
+    T(["Déclenchement toutes les 3 heures"])
+    Q["Préparation des 10 recherches thématiques"]
+    N["Interrogation de NewsData.io"]
+    A["Regroupement, dédoublonnage<br/>et filtre sur les 14 derniers jours"]
+    C1{"Des articles<br/>à analyser ?"}
+    G["Analyse par l'IA<br/>point de vue AWB"]
+    P["Mise en forme et filtre<br/>score ≥ 30"]
+    C2{"Des articles<br/>pertinents ?"}
+    S[("Ajout dans Google Sheets")]
+    F1(("Fin"))
+    F2(("Fin"))
 
     T --> Q --> N --> A --> C1
-    C1 -- oui --> G --> P --> C2
-    C1 -- non --> X1
-    C2 -- oui --> S
-    C2 -- non --> X2
-
-    classDef trigger fill:#1B3A6B,color:#fff,stroke:#1B3A6B
-    classDef ai fill:#C9AA71,color:#1B3A6B,stroke:#a88a52
-    classDef store fill:#27AE60,color:#fff,stroke:#1e8449
-    classDef cond fill:#F4F6FB,stroke:#1B3A6B,color:#1B3A6B
-    class T trigger
-    class G ai
-    class S store
-    class C1,C2 cond
+    C1 -- Oui --> G --> P --> C2
+    C1 -- Non --> F1
+    C2 -- Oui --> S
+    C2 -- Non --> F2
 ```
 
-### Ce que produit l'analyse Groq pour chaque article
-
-| Champ | Contenu |
-|---|---|
-| `resume` | Résumé en 1 phrase |
-| `categorie` | Paiement multicanal · Banque concurrente · Fintech · Régulation · Service public · E-commerce · Innovation · Partenariat · Autre |
-| `type_signal` | Lancement produit · Partenariat · Évolution réglementaire · Initiative concurrente · Digitalisation · Opportunité marché · Tendance émergente · Information générale |
-| `acteurs_cites`, `banque_concurrente` | Entités détectées |
-| `importance` | Élevée · Moyenne · Faible |
-| `opportunite` | Comment AWB peut en profiter concrètement (**obligatoire**) |
-| `menace` | Quel risque pour AWB ou quel avantage pour un concurrent (**obligatoire**) |
-| `impact_awb`, `action_recommandee` | Impact et action concrète pour AWB |
-| `score` | 0-29 non pertinent · 30-59 pertinent · 60-100 très pertinent |
+Fichier n8n : [`workflows/veille-agent-newsdata.json`](workflows/veille-agent-newsdata.json)
 
 ---
 
-## Workflow 2 : Digest quotidien par email
+## 2. Digest quotidien
 
-Fichier : [`workflows/digest-quotidien.json`](workflows/digest-quotidien.json)
-
-```mermaid
-flowchart TD
-    T(["⏱ 08h00 lun-ven<br/><i>Cron 0 8 * * 1-5</i>"])
-    R[("📊 Lire Google Sheets<br/><i>onglet Veille</i>")]
-    P["🧮 Préparer données digest<br/><i>Code · articles du jour · tri par importance · top 15</i>"]
-    C{"A des données ?"}
-    O["🤖 Générer digest<br/><i>HTTP POST · OpenAI gpt-4o-mini</i>"]
-    H["🎨 Construire email HTML<br/><i>Code · charte bancaire</i>"]
-    M["📧 Envoyer digest<br/><i>Gmail</i>"]
-    X(("fin"))
-
-    T --> R --> P --> C
-    C -- oui --> O --> H --> M
-    C -- non --> X
-
-    classDef trigger fill:#1B3A6B,color:#fff,stroke:#1B3A6B
-    classDef ai fill:#C9AA71,color:#1B3A6B,stroke:#a88a52
-    classDef store fill:#27AE60,color:#fff,stroke:#1e8449
-    classDef cond fill:#F4F6FB,stroke:#1B3A6B,color:#1B3A6B
-    class T trigger
-    class O ai
-    class R,M store
-    class C cond
-```
+Chaque jour ouvré à 8h, le système relit les articles collectés depuis minuit. Il privilégie ceux dont l'importance est élevée ou moyenne, puis demande à un second modèle (GPT-4o mini) de rédiger une note de synthèse comme le ferait un directeur de l'intelligence stratégique.
 
 Le digest contient :
 
-- une **synthèse exécutive** (3-4 phrases) ;
-- les **5 signaux** les plus importants, avec leur urgence ;
-- les **3 opportunités** principales et l'action associée ;
-- les **3 menaces** principales et l'action associée ;
-- les **initiatives concurrentes** du jour ;
-- la **recommandation du jour**.
+- une synthèse de la journée en quelques phrases ;
+- les cinq signaux les plus importants, classés par urgence ;
+- les trois principales opportunités et les trois principales menaces, chacune avec une piste d'action ;
+- les initiatives des banques concurrentes ;
+- la recommandation prioritaire du jour.
 
----
-
-## Modèle de données (Google Sheets)
-
-Le script [`scripts/google_sheet_init.gs`](scripts/google_sheet_init.gs) (Google Apps Script) crée le classeur avec 3 onglets :
+Il est mis en page en HTML aux couleurs de la banque, puis envoyé par Gmail. S'il n'y a rien de nouveau, aucun email n'est envoyé.
 
 ```mermaid
-erDiagram
-    VEILLE {
-        string Date_de_collecte
-        string Titre
-        string Source
-        string Lien
-        string Date_publication
-        string Resume
-        string Categorie
-        string Sous_categorie
-        string Type_de_signal
-        string Acteurs_cites
-        string Banque_concurrente
-        string Importance
-        string Opportunite
-        string Menace
-        string Impact_pour_AWB
-        string Action_recommandee
-        string Pertinent
-        string Statut
-    }
-    DIGEST {
-        string Date
-        int Nb_articles
-        string Top_Opportunites
-        string Top_Menaces
-        string Top_Initiatives_concurrentes
-        string Statut_envoi
-    }
-    SOURCES {
-        string Nom
-        string URL_RSS
-        string Categorie
-        string Actif
-        string Priorite
-        string Notes
-    }
-    VEILLE }o--|| DIGEST : "agrégé chaque jour"
+flowchart TD
+    T(["Déclenchement à 8h, du lundi au vendredi"])
+    R[("Lecture du Google Sheet")]
+    P["Sélection des articles du jour<br/>classés par importance"]
+    C{"Des articles<br/>aujourd'hui ?"}
+    O["Rédaction de la synthèse par l'IA"]
+    H["Mise en page de l'email"]
+    M["Envoi par Gmail"]
+    F(("Fin"))
+
+    T --> R --> P --> C
+    C -- Oui --> O --> H --> M
+    C -- Non --> F
 ```
 
----
-
-## Structure du dépôt
-
-```
-.
-├── README.md
-├── workflows/
-│   ├── veille-agent-newsdata.json   # Workflow 1 : collecte + analyse Groq (actif)
-│   ├── digest-quotidien.json        # Workflow 2 : digest email quotidien
-│   └── archive/
-│       └── collection-rss.json      # Première version basée sur des flux RSS (abandonnée)
-├── scripts/
-│   └── google_sheet_init.gs         # Initialisation du Google Sheet
-└── docs/
-    └── cahier-des-charges.md        # Cahier des charges du MVP
-```
+Fichier n8n : [`workflows/digest-quotidien.json`](workflows/digest-quotidien.json)
 
 ---
 
-## Installation
+## Ce que contient le Google Sheet
 
-### Prérequis
+Chaque ligne de l'onglet **Veille** correspond à un article retenu et contient :
 
-- [n8n](https://n8n.io) (par exemple `docker run -it --rm -p 5678:5678 n8nio/n8n`)
-- Une clé API [NewsData.io](https://newsdata.io) (le plan gratuit suffit)
-- Une clé API [Groq](https://console.groq.com)
-- Une clé API [OpenAI](https://platform.openai.com), pour le digest
-- Un compte Google (Sheets et Gmail)
+- **l'identification de l'article** : date de collecte, titre, source, lien, date de publication ;
+- **la lecture de l'article** : résumé, catégorie, type de signal, acteurs cités, banque concurrente concernée ;
+- **l'analyse pour AWB** : importance, opportunité, menace, impact, action recommandée ;
+- **le suivi** : une colonne *Statut* pour indiquer si l'article a été lu ou traité.
 
-### Étapes
+Le classeur contient aussi un onglet **Digest**, qui garde l'historique des synthèses envoyées, et un onglet **Sources**, qui liste les sources suivies.
 
-1. **Créer le Google Sheet** : ouvrez un nouveau classeur, allez dans *Extensions → Apps Script*, collez `scripts/google_sheet_init.gs`, puis exécutez-le. Notez l'ID du classeur (dans l'URL).
-2. **Importer les workflows dans n8n** : *Workflows → Import from file*, puis sélectionnez les fichiers de `workflows/`.
-3. **Remplacer les placeholders** dans les nœuds :
-
-   | Placeholder | Nœud concerné |
-   |---|---|
-   | `VOTRE_CLE_NEWSDATA` | Appel NewsData |
-   | `VOTRE_CLE_GROQ` | Analyser avec Groq |
-   | `VOTRE_CLE_OPENAI` | Générer Digest OpenAI |
-   | `VOTRE_SPREADSHEET_ID` | Nœuds Google Sheets |
-   | `destinataire@exemple.com` | Envoyer Digest Email |
-
-4. **Configurer les credentials OAuth2** Google Sheets et Gmail dans n8n (URL de callback : `http://localhost:5678/rest/oauth2-credential/callback`).
-5. **Activer** les deux workflows.
-
-> ⚠️ Ne committez jamais de vraies clés API. Stockez-les de préférence dans les *Credentials* n8n plutôt que dans les paramètres des nœuds.
+Pour créer ce classeur avec la bonne mise en forme, utilisez le script [`scripts/google_sheet_init.gs`](scripts/google_sheet_init.gs).
 
 ---
 
-## Personnalisation
+## Mise en place
 
-- **Ajouter un thème de veille** : modifiez le nœud *Liste des requêtes* (une ligne `{ json: { q: '...' } }` par requête).
-- **Changer le seuil de pertinence** : modifiez `>= 30` dans le nœud *Parser résultats*.
-- **Ajuster la logique métier** : le prompt système se trouve dans le nœud *Agréger articles* (champ `payload.messages[0].content`).
-- **Changer la fréquence** : modifiez les nœuds *Schedule Trigger*.
+Vous aurez besoin de :
+
+- une instance n8n (la version Docker suffit) ;
+- une clé API NewsData.io (l'offre gratuite suffit pour démarrer) ;
+- une clé API Groq ;
+- une clé API OpenAI, pour le digest ;
+- un compte Google, pour Sheets et Gmail.
+
+**Étape 1 : créer le Google Sheet.** Ouvrez un classeur vide, allez dans *Extensions > Apps Script*, collez le contenu de `scripts/google_sheet_init.gs` puis lancez-le. Notez l'identifiant du classeur, visible dans son URL.
+
+**Étape 2 : importer les workflows.** Dans n8n, allez dans *Import from file* et sélectionnez les deux fichiers du dossier `workflows/`.
+
+**Étape 3 : renseigner vos accès.** Pour des raisons de sécurité, les clés ont été retirées des fichiers. Remplacez les valeurs suivantes dans les nœuds concernés :
+
+| À remplacer | Où |
+|---|---|
+| `VOTRE_CLE_NEWSDATA` | Appel NewsData |
+| `VOTRE_CLE_GROQ` | Analyser avec Groq |
+| `VOTRE_CLE_OPENAI` | Générer Digest OpenAI |
+| `VOTRE_SPREADSHEET_ID` | Nœuds Google Sheets |
+| `destinataire@exemple.com` | Envoyer Digest Email |
+
+**Étape 4 : connecter Google.** Dans n8n, créez les accès OAuth2 pour Google Sheets et Gmail. L'URL de retour à déclarer dans la console Google est `http://localhost:5678/rest/oauth2-credential/callback`.
+
+**Étape 5 : activer les deux workflows.**
 
 ---
 
-## Feuille de route
+## Adapter la veille
 
-- [x] Collecte NewsData.io, analyse Groq et stockage Google Sheets
-- [ ] Tester et valider le digest quotidien
-- [ ] Faire passer le digest de OpenAI à Groq (pour n'utiliser qu'un seul fournisseur)
-- [ ] Ajouter la veille LinkedIn via rss.app (CMI, HPS, CIH Bank)
-- [ ] Mettre en place un scoring avancé et un tableau de bord
+Le système est conçu pour évoluer sans toucher à son architecture.
+
+- **Suivre un nouveau sujet** : ajoutez une ligne de recherche dans le nœud *Liste des requêtes*.
+- **Être plus ou moins sélectif** : changez le seuil de 30 dans le nœud *Parser résultats*.
+- **Affiner le regard métier** : les consignes données à l'IA se trouvent dans le nœud *Agréger articles*. C'est là que l'on précise les concurrents, les catégories et la façon de juger l'importance.
+- **Changer la fréquence** : modifiez les déclencheurs en tête de chaque workflow.
+
+---
+
+## Limites connues et prochaines étapes
+
+Ce projet est un MVP. Il a été pensé pour être utile rapidement, pas pour tout couvrir dès le départ.
+
+- La collecte s'appuie uniquement sur la presse indexée par NewsData.io. Les réseaux sociaux et les sites institutionnels ne sont pas encore couverts. L'ajout des pages LinkedIn de CMI, HPS et CIH Bank est prévu.
+- Pour garantir la qualité de l'analyse, le nombre d'articles traités à chaque passage est limité à huit.
+- Le digest quotidien est encore en phase de test. À terme, il utilisera le même modèle que l'analyse, afin de ne dépendre que d'un seul fournisseur.
+- Une première version basée sur des flux RSS a été abandonnée, car elle remontait trop peu de résultats. Elle est conservée dans [`workflows/archive/`](workflows/archive/).
+
+Le cahier des charges complet du projet est disponible dans [`docs/cahier-des-charges.md`](docs/cahier-des-charges.md).
