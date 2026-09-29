@@ -1,4 +1,4 @@
-# Automated Intelligence Monitoring
+# AUTOMATED INTELLIGENCE MONITORING
 
 ### Veille stratégique automatisée sur le paiement et la fintech au Maroc
 
