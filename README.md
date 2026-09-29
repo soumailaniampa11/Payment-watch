@@ -1,4 +1,4 @@
-# Automated Intelligence Monitoring
+# AUTOMATED INTELLIGENCE MONITORING : MVP
 
 ### Automated market intelligence on payments and fintech in Morocco
 
