@@ -1,180 +1,180 @@
-# AUTOMATED INTELLIGENCE MONITORING
+# Automated Intelligence Monitoring
 
-### Veille stratégique automatisée sur le paiement et la fintech au Maroc
+### Automated market intelligence on payments and fintech in Morocco
 
-Suivre l'actualité du paiement au Maroc prend du temps. Les annonces des banques concurrentes, les nouvelles fintechs, les circulaires de Bank Al-Maghrib et les projets de digitalisation publique sont publiés dans des dizaines de médias différents. Le plus difficile n'est pas de trouver l'information, mais de repérer vite ce qui compte vraiment pour la banque.
+Keeping up with the Moroccan payments market takes time. Competitor bank announcements, new fintechs, Bank Al-Maghrib circulars and public-sector digitalization projects are spread across dozens of news outlets. Finding the information is not the hard part. The hard part is spotting quickly what actually matters for the bank.
 
-Ce projet automatise ce travail. Plusieurs fois par jour, il collecte les articles de presse marocains sur ces sujets. Il les fait lire par un modèle d'IA qui raisonne comme un analyste de la division Paiement Multicanal d'Attijariwafa Bank, et ne conserve que ce qui mérite de l'attention. Chaque matin, un digest arrive par email avec l'essentiel de la veille.
+This project automates that work. Several times a day, it collects Moroccan news articles on these topics. An AI model reads them the way an analyst from Attijariwafa Bank's Multichannel Payments team would, and keeps only what deserves attention. Every morning, a digest with the key takeaways lands in your inbox.
 
-L'objectif n'est pas d'obtenir des résumés d'articles, mais des réponses à des questions métier :
+The goal is not to summarize articles. It is to answer business questions:
 
-- Est-ce que ce sujet concerne notre activité ?
-- Un concurrent est-il en train de prendre de l'avance ?
-- Y a-t-il une opportunité de partenariat ou de positionnement ?
-- Que devrait-on faire concrètement ?
+- Does this affect our business?
+- Is a competitor getting ahead of us?
+- Is there a partnership or positioning opportunity?
+- What should we actually do about it?
 
 ---
 
-## Comment ça fonctionne
+## How it works
 
-Le système repose sur deux automatisations indépendantes, construites avec [n8n](https://n8n.io). Google Sheets sert de base de données entre les deux.
+The system runs on two independent automations built with [n8n](https://n8n.io). Google Sheets acts as the database between them.
 
 ```mermaid
 flowchart LR
-    NEWS[("Presse marocaine<br/>via NewsData.io")]
-    A["Collecte et analyse<br/>toutes les 3 heures"]
-    SHEET[("Google Sheets<br/>base de veille")]
-    D["Digest quotidien<br/>8h, du lundi au vendredi"]
-    MAIL["Email à la direction<br/>Paiement Multicanal"]
+    NEWS[("Moroccan press<br/>via NewsData.io")]
+    A["Collection and analysis<br/>every 3 hours"]
+    SHEET[("Google Sheets<br/>intelligence database")]
+    D["Daily digest<br/>8am, Monday to Friday"]
+    MAIL["Email to the<br/>Multichannel Payments team"]
 
     NEWS --> A --> SHEET --> D --> MAIL
 ```
 
-La première automatisation alimente la base en continu. La seconde la relit chaque matin pour en tirer une synthèse. Cette séparation permet de consulter la base à tout moment dans le Google Sheet, sans attendre le digest.
+The first automation keeps the database up to date throughout the day. The second reads it every morning and turns it into a summary. Because the two are separate, you can open the Google Sheet at any time without waiting for the digest.
 
 ---
 
-## 1. Collecte et analyse des articles
+## 1. Collecting and analyzing articles
 
-Toutes les trois heures, le système interroge NewsData.io avec dix recherches thématiques qui couvrent le périmètre de la veille :
+Every three hours, the system runs ten topic-based searches on NewsData.io:
 
-| Thème | Exemples de mots-clés |
+| Topic | Sample keywords |
 |---|---|
-| Paiement et monétique | wallet, paiement mobile, TPE, QR code, SoftPOS, sans contact |
-| Acteurs du paiement | CMI, HPS, Visa, Mastercard |
-| Banques concurrentes | CIH Bank, BMCE, Banque Populaire, Société Générale Maroc |
-| Régulation | Bank Al-Maghrib, agréments de paiement, cadre fintech |
-| Secteur public | e-gov, CNSS, DGI, CMR, paiement en ligne des administrations |
-| Marché et innovation | startups, e-commerce, open banking, BNPL |
+| Payments and card processing | wallets, mobile payments, POS terminals, QR codes, SoftPOS, contactless |
+| Payment players | CMI, HPS, Visa, Mastercard |
+| Competitor banks | CIH Bank, BMCE, Banque Populaire, Société Générale Maroc |
+| Regulation | Bank Al-Maghrib, payment licenses, fintech framework |
+| Public sector | e-government, CNSS, DGI, CMR, online payment of public services |
+| Market and innovation | startups, e-commerce, open banking, BNPL |
 
-Seuls les articles publiés au Maroc, en français, au cours des 14 derniers jours sont retenus. Les doublons sont supprimés, car un même article peut remonter dans plusieurs recherches.
+Only French-language articles from Moroccan sources, published in the last 14 days, are kept. Duplicates are removed, since the same article often comes up in several searches.
 
-Les articles sont ensuite envoyés au modèle de langage (Llama 3.3 70B via Groq). Pour chacun, le modèle rédige une fiche d'analyse : un résumé, une catégorie, le type de signal, les acteurs cités et un niveau d'importance. Il indique surtout, du point de vue d'AWB, **l'opportunité à saisir, la menace à surveiller et une action recommandée**. Ces deux derniers champs sont obligatoires dans les consignes du modèle, pour éviter les analyses génériques.
+The articles are then sent to a language model (Llama 3.3 70B, via Groq). For each one, the model writes a short analysis: a summary, a category, the type of signal, the companies involved and an importance level. Most importantly, it spells out from the bank's point of view **the opportunity to seize, the threat to watch and a recommended action**. The model is required to fill in the opportunity and the threat, so it cannot fall back on generic comments.
 
-Enfin, chaque article reçoit un score de pertinence sur 100. Seuls ceux qui atteignent 30 sont enregistrés dans le Google Sheet.
+Finally, each article gets a relevance score out of 100. Only articles scoring 30 or more are saved to the Google Sheet.
 
 ```mermaid
 flowchart TD
-    T(["Déclenchement toutes les 3 heures"])
-    Q["Préparation des 10 recherches thématiques"]
-    N["Interrogation de NewsData.io"]
-    A["Regroupement, dédoublonnage<br/>et filtre sur les 14 derniers jours"]
-    C1{"Des articles<br/>à analyser ?"}
-    G["Analyse par l'IA<br/>point de vue AWB"]
-    P["Mise en forme et filtre<br/>score ≥ 30"]
-    C2{"Des articles<br/>pertinents ?"}
-    S[("Ajout dans Google Sheets")]
-    F1(("Fin"))
-    F2(("Fin"))
+    T(["Runs every 3 hours"])
+    Q["Prepare the 10 topic searches"]
+    N["Query NewsData.io"]
+    A["Merge results, remove duplicates<br/>and keep the last 14 days"]
+    C1{"Any articles<br/>to analyze?"}
+    G["AI analysis<br/>from the bank's point of view"]
+    P["Format results and filter<br/>score ≥ 30"]
+    C2{"Any relevant<br/>articles?"}
+    S[("Append to Google Sheets")]
+    F1(("End"))
+    F2(("End"))
 
     T --> Q --> N --> A --> C1
-    C1 -- Oui --> G --> P --> C2
-    C1 -- Non --> F1
-    C2 -- Oui --> S
-    C2 -- Non --> F2
+    C1 -- Yes --> G --> P --> C2
+    C1 -- No --> F1
+    C2 -- Yes --> S
+    C2 -- No --> F2
 ```
 
-Fichier n8n : [`workflows/veille-agent-newsdata.json`](workflows/veille-agent-newsdata.json)
+n8n file: [`workflows/veille-agent-newsdata.json`](workflows/veille-agent-newsdata.json)
 
 ---
 
-## 2. Digest quotidien
+## 2. Daily digest
 
-Chaque jour ouvré à 8h, le système relit les articles collectés depuis minuit. Il privilégie ceux dont l'importance est élevée ou moyenne, puis demande à un second modèle (GPT-4o mini) de rédiger une note de synthèse comme le ferait un directeur de l'intelligence stratégique.
+Every weekday at 8am, the system reads the articles collected since midnight. It focuses on the ones rated high or medium importance, then asks a second model (GPT-4o mini) to write a briefing note, the way a head of strategic intelligence would.
 
-Le digest contient :
+The digest includes:
 
-- une synthèse de la journée en quelques phrases ;
-- les cinq signaux les plus importants, classés par urgence ;
-- les trois principales opportunités et les trois principales menaces, chacune avec une piste d'action ;
-- les initiatives des banques concurrentes ;
-- la recommandation prioritaire du jour.
+- a short overview of the day;
+- the five most important signals, ranked by urgency;
+- the top three opportunities and the top three threats, each with a suggested action;
+- notable moves by competitor banks;
+- the one priority to focus on today.
 
-Il est mis en page en HTML aux couleurs de la banque, puis envoyé par Gmail. S'il n'y a rien de nouveau, aucun email n'est envoyé.
+It is laid out as an HTML email in the bank's colors and sent through Gmail. If there is nothing new, no email goes out.
 
 ```mermaid
 flowchart TD
-    T(["Déclenchement à 8h, du lundi au vendredi"])
-    R[("Lecture du Google Sheet")]
-    P["Sélection des articles du jour<br/>classés par importance"]
-    C{"Des articles<br/>aujourd'hui ?"}
-    O["Rédaction de la synthèse par l'IA"]
-    H["Mise en page de l'email"]
-    M["Envoi par Gmail"]
-    F(("Fin"))
+    T(["Runs at 8am, Monday to Friday"])
+    R[("Read the Google Sheet")]
+    P["Select today's articles<br/>sorted by importance"]
+    C{"Any articles<br/>today?"}
+    O["AI writes the briefing"]
+    H["Build the HTML email"]
+    M["Send through Gmail"]
+    F(("End"))
 
     T --> R --> P --> C
-    C -- Oui --> O --> H --> M
-    C -- Non --> F
+    C -- Yes --> O --> H --> M
+    C -- No --> F
 ```
 
-Fichier n8n : [`workflows/digest-quotidien.json`](workflows/digest-quotidien.json)
+n8n file: [`workflows/digest-quotidien.json`](workflows/digest-quotidien.json)
 
 ---
 
-## Ce que contient le Google Sheet
+## What's in the Google Sheet
 
-Chaque ligne de l'onglet **Veille** correspond à un article retenu et contient :
+Each row in the **Veille** tab is one selected article. It holds:
 
-- **l'identification de l'article** : date de collecte, titre, source, lien, date de publication ;
-- **la lecture de l'article** : résumé, catégorie, type de signal, acteurs cités, banque concurrente concernée ;
-- **l'analyse pour AWB** : importance, opportunité, menace, impact, action recommandée ;
-- **le suivi** : une colonne *Statut* pour indiquer si l'article a été lu ou traité.
+- **the article itself**: collection date, title, source, link, publication date;
+- **what it's about**: summary, category, signal type, companies mentioned, competitor bank involved;
+- **what it means for the bank**: importance, opportunity, threat, impact, recommended action;
+- **follow-up**: a *Statut* column to mark whether the article has been read or acted on.
 
-Le classeur contient aussi un onglet **Digest**, qui garde l'historique des synthèses envoyées, et un onglet **Sources**, qui liste les sources suivies.
+The spreadsheet also has a **Digest** tab, which keeps a history of the briefings sent, and a **Sources** tab, which lists the sources being monitored.
 
-Pour créer ce classeur avec la bonne mise en forme, utilisez le script [`scripts/google_sheet_init.gs`](scripts/google_sheet_init.gs).
+To create the spreadsheet with the right layout, run the script in [`scripts/google_sheet_init.gs`](scripts/google_sheet_init.gs).
 
 ---
 
-## Mise en place
+## Getting started
 
-Vous aurez besoin de :
+You will need:
 
-- une instance n8n (la version Docker suffit) ;
-- une clé API NewsData.io (l'offre gratuite suffit pour démarrer) ;
-- une clé API Groq ;
-- une clé API OpenAI, pour le digest ;
-- un compte Google, pour Sheets et Gmail.
+- an n8n instance (the Docker version is enough);
+- a NewsData.io API key (the free plan is enough to start);
+- a Groq API key;
+- an OpenAI API key, for the digest;
+- a Google account, for Sheets and Gmail.
 
-**Étape 1 : créer le Google Sheet.** Ouvrez un classeur vide, allez dans *Extensions > Apps Script*, collez le contenu de `scripts/google_sheet_init.gs` puis lancez-le. Notez l'identifiant du classeur, visible dans son URL.
+**Step 1: create the Google Sheet.** Open a blank spreadsheet, go to *Extensions > Apps Script*, paste the content of `scripts/google_sheet_init.gs` and run it. Write down the spreadsheet ID; you'll find it in the URL.
 
-**Étape 2 : importer les workflows.** Dans n8n, allez dans *Import from file* et sélectionnez les deux fichiers du dossier `workflows/`.
+**Step 2: import the workflows.** In n8n, choose *Import from file* and select the two files in the `workflows/` folder.
 
-**Étape 3 : renseigner vos accès.** Pour des raisons de sécurité, les clés ont été retirées des fichiers. Remplacez les valeurs suivantes dans les nœuds concernés :
+**Step 3: add your credentials.** API keys have been removed from the files for security reasons. Replace these values in the matching nodes:
 
-| À remplacer | Où |
+| Replace | In node |
 |---|---|
 | `VOTRE_CLE_NEWSDATA` | Appel NewsData |
 | `VOTRE_CLE_GROQ` | Analyser avec Groq |
 | `VOTRE_CLE_OPENAI` | Générer Digest OpenAI |
-| `VOTRE_SPREADSHEET_ID` | Nœuds Google Sheets |
+| `VOTRE_SPREADSHEET_ID` | Google Sheets nodes |
 | `destinataire@exemple.com` | Envoyer Digest Email |
 
-**Étape 4 : connecter Google.** Dans n8n, créez les accès OAuth2 pour Google Sheets et Gmail. L'URL de retour à déclarer dans la console Google est `http://localhost:5678/rest/oauth2-credential/callback`.
+**Step 4: connect Google.** In n8n, set up OAuth2 credentials for Google Sheets and Gmail. The redirect URL to add in the Google Cloud console is `http://localhost:5678/rest/oauth2-credential/callback`.
 
-**Étape 5 : activer les deux workflows.**
-
----
-
-## Adapter la veille
-
-Le système est conçu pour évoluer sans toucher à son architecture.
-
-- **Suivre un nouveau sujet** : ajoutez une ligne de recherche dans le nœud *Liste des requêtes*.
-- **Être plus ou moins sélectif** : changez le seuil de 30 dans le nœud *Parser résultats*.
-- **Affiner le regard métier** : les consignes données à l'IA se trouvent dans le nœud *Agréger articles*. C'est là que l'on précise les concurrents, les catégories et la façon de juger l'importance.
-- **Changer la fréquence** : modifiez les déclencheurs en tête de chaque workflow.
+**Step 5: activate both workflows.**
 
 ---
 
-## Limites connues et prochaines étapes
+## Customizing the monitoring
 
-Ce projet est un MVP. Il a été pensé pour être utile rapidement, pas pour tout couvrir dès le départ.
+The system is designed to evolve without changing its architecture. The n8n nodes keep their original French names.
 
-- La collecte s'appuie uniquement sur la presse indexée par NewsData.io. Les réseaux sociaux et les sites institutionnels ne sont pas encore couverts. L'ajout des pages LinkedIn de CMI, HPS et CIH Bank est prévu.
-- Pour garantir la qualité de l'analyse, le nombre d'articles traités à chaque passage est limité à huit.
-- Le digest quotidien est encore en phase de test. À terme, il utilisera le même modèle que l'analyse, afin de ne dépendre que d'un seul fournisseur.
-- Une première version basée sur des flux RSS a été abandonnée, car elle remontait trop peu de résultats. Elle est conservée dans [`workflows/archive/`](workflows/archive/).
+- **Track a new topic**: add a search line in the *Liste des requêtes* node.
+- **Be more or less selective**: change the threshold of 30 in the *Parser résultats* node.
+- **Sharpen the business judgment**: the instructions given to the AI are in the *Agréger articles* node. That is where you define the competitors, the categories and how importance is assessed.
+- **Change the frequency**: edit the trigger at the start of each workflow.
 
-Le cahier des charges complet du projet est disponible dans [`docs/cahier-des-charges.md`](docs/cahier-des-charges.md).
+---
+
+## Known limitations and next steps
+
+This is an MVP. It was built to be useful quickly, not to cover everything from day one.
+
+- Collection relies only on news indexed by NewsData.io. Social media and institutional websites are not covered yet. Adding the LinkedIn pages of CMI, HPS and CIH Bank is planned.
+- To keep the analysis accurate, each run processes at most eight articles.
+- The daily digest is still being tested. It will eventually use the same model as the analysis, so the project depends on a single AI provider.
+- An earlier version based on RSS feeds was dropped because it returned too few results. It is kept in [`workflows/archive/`](workflows/archive/).
+
+The full project specification (in French) is available in [`docs/cahier-des-charges.md`](docs/cahier-des-charges.md).
